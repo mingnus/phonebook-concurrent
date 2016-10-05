@@ -20,7 +20,6 @@ entry *findName(char lastname[], entry *pHead)
             pHead->dtl = (pdetail) malloc(sizeof(detail));
             return pHead;
         }
-        dprintf("find string = %s\n", pHead->lastName);
         pHead = pHead->pNext;
     }
     return NULL;
@@ -59,8 +58,6 @@ void append(void *arg)
         app->pLast = app->pLast->pNext;
 
         app->pLast->lastName = i;
-        dprintf("thread %d append string = %s\n",
-                app->tid, app->pLast->lastName);
         app->pLast->pNext = NULL;
     }
     clock_gettime(CLOCK_REALTIME, &end);
