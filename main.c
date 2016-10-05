@@ -4,6 +4,9 @@
 #include <string.h>
 #include <time.h>
 #include <assert.h>
+#include <stdint.h>
+#include <errno.h>
+#include <getopt.h>
 
 #include <unistd.h>
 #include <pthread.h>
@@ -26,6 +29,21 @@ static double diff_in_second(struct timespec t1, struct timespec t2)
     return (diff.tv_sec + diff.tv_nsec / 1000000000.0);
 }
 
+int strtou32_safe(const char *str, uint32_t *out)
+{
+    char *endptr = NULL;
+    unsigned long tmp;
+
+    if (!str || !out)
+        return -1;
+    errno = 0;
+    tmp = strtoul(str, &endptr, 10);
+    if (endptr == str || errno == ERANGE)
+        return -1;
+    *out = (uint32_t)tmp;
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
 #ifndef OPT
@@ -37,6 +55,24 @@ int main(int argc, char *argv[])
 #endif
     struct timespec start, end;
     double cpu_time1, cpu_time2;
+    uint32_t nr_threads = 1;
+    int ch;
+
+    const char shortopts[] = "t:";
+    const struct option longopts[] = {
+        { "threads", required_argument, NULL, 't'},
+        { NULL, no_argument, NULL, 0 }
+    };
+    while ((ch = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1) {
+        switch (ch) {
+            case 't':
+                if (strtou32_safe(optarg, &nr_threads) < 0)
+                    return 1;
+                break;
+            default:
+                break;
+        }
+    }
 
 #ifndef OPT
     /* check file opening */
@@ -69,9 +105,6 @@ int main(int argc, char *argv[])
 
 #if defined(OPT)
 
-#ifndef THREAD_NUM
-#define THREAD_NUM 4
-#endif
     clock_gettime(CLOCK_REALTIME, &start);
 
     char *map = mmap(NULL, fs, PROT_READ, MAP_SHARED, fd, 0);
@@ -83,24 +116,24 @@ int main(int argc, char *argv[])
 
     assert(entry_pool && "entry_pool error");
 
-    pthread_setconcurrency(THREAD_NUM + 1);
+    pthread_setconcurrency(nr_threads + 1);
 
-    pthread_t *tid = (pthread_t *) malloc(sizeof(pthread_t) * THREAD_NUM);
-    append_a **app = (append_a **) malloc(sizeof(append_a *) * THREAD_NUM);
-    for (int i = 0; i < THREAD_NUM; i++)
+    pthread_t *tid = (pthread_t *) malloc(sizeof(pthread_t) * nr_threads);
+    append_a **app = (append_a **) malloc(sizeof(append_a *) * nr_threads);
+    for (int i = 0; i < nr_threads; i++)
         app[i] = new_append_a(map + MAX_LAST_NAME_SIZE * i, map + fs, i,
-                              THREAD_NUM, entry_pool + i);
+                              nr_threads, entry_pool + i);
 
     clock_gettime(CLOCK_REALTIME, &mid);
-    for (int i = 0; i < THREAD_NUM; i++)
+    for (int i = 0; i < nr_threads; i++)
         pthread_create( &tid[i], NULL, (void *) &append, (void *) app[i]);
 
-    for (int i = 0; i < THREAD_NUM; i++)
+    for (int i = 0; i < nr_threads; i++)
         pthread_join(tid[i], NULL);
 
     entry *etmp;
     pHead = pHead->pNext;
-    for (int i = 0; i < THREAD_NUM; i++) {
+    for (int i = 0; i < nr_threads; i++) {
         if (i == 0) {
             pHead = app[i]->pHead->pNext;
             dprintf("Connect %d head string %s %p\n", i,
